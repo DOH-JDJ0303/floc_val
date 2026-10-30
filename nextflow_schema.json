@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/NW-PaGe/floc-consistency/main/nextflow_schema.json",
+  "title": "floc-consistency pipeline parameters",
+  "description": "Consistency of floc clustering across batch sizes, with SKA2 core SNP distances",
+  "type": "object",
+  "definitions": {
+    "input_output": {
+      "title": "Input/output",
+      "type": "object",
+      "required": ["assemblies", "outdir"],
+      "properties": {
+        "assemblies": {
+          "type": "string",
+          "format": "directory-path",
+          "description": "Directory of assemblies (.fa, .fasta, .fna, optionally .gz). Sample names are file names without extensions."
+        },
+        "outdir": {
+          "type": "string",
+          "format": "directory-path",
+          "default": "results",
+          "description": "Output directory (use a bucket path, e.g. s3://..., on Seqera Platform)."
+        }
+      }
+    },
+    "batches": {
+      "title": "Batch sizes and sample order",
+      "type": "object",
+      "properties": {
+        "batch_sizes": {
+          "type": "string",
+          "description": "Comma-separated batch sizes, e.g. '10,50'. Overrides start/step/stop. The all-samples reference run is always added."
+        },
+        "start": { "type": "integer", "default": 1, "minimum": 1, "description": "Smallest batch size (when batch_sizes is not set)." },
+        "step": { "type": "integer", "default": 10, "minimum": 1, "description": "Increase between batch sizes (when batch_sizes is not set)." },
+        "stop": { "type": "integer", "minimum": 1, "description": "Largest batch size before the reference run (default: number of samples)." },
+        "shuffle": { "type": "boolean", "default": true, "description": "Shuffle the sample order (one order is used for every batch size)." },
+        "seed": { "type": "integer", "default": 1, "description": "Random seed for the shuffle." }
+      }
+    },
+    "floc_options": {
+      "title": "floc",
+      "type": "object",
+      "properties": {
+        "floc_args": {
+          "type": "string",
+          "default": "",
+          "description": "Extra floc options for every call, e.g. '-d 0.03 --min-hash-frac 0 --assign-metric avg'. Do not include -o or inputs."
+        },
+        "floc_container": { "type": "string", "default": "public.ecr.aws/o8h2f0o1/floc:1.2.1", "description": "floc container image." }
+      }
+    },
+    "ska_options": {
+      "title": "SKA2 core SNPs",
+      "type": "object",
+      "properties": {
+        "core": {
+          "type": "string",
+          "default": "group",
+          "enum": ["group", "global", "pairwise"],
+          "description": "group: core of samples linked by measured pairs; global: core of all measured samples; pairwise: split k-mers shared by each pair."
+        },
+        "ska_k": { "type": "integer", "default": 31, "description": "SKA2 split k-mer size (odd)." },
+        "snp_threshold": { "type": "number", "default": 100, "description": "Report discrepant pairs with fewer core SNPs than this." },
+        "ska_container": { "type": "string", "default": "staphb/ska2:0.5.1", "description": "SKA2 container image." }
+      }
+    }
+  },
+  "allOf": [
+    { "$ref": "#/definitions/input_output" },
+    { "$ref": "#/definitions/batches" },
+    { "$ref": "#/definitions/floc_options" },
+    { "$ref": "#/definitions/ska_options" }
+  ]
+}
