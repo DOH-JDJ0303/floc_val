@@ -30,9 +30,9 @@ against pairwise SNP distances between every pair of samples.
 # locally with Docker
 nextflow run main.nf --assemblies assemblies/ --outdir results --batch_sizes 10,50
 
-# extra floc options
+# floc options
 nextflow run main.nf --assemblies assemblies/ --outdir results --batch_sizes 10,50 \
-    --floc_args '--min-hash-frac 0'
+    --floc_distance 0.02 --floc_min_hash_frac 0 --floc_assign_metric query
 
 # reuse distances from an earlier run (or any matrix) and skip SKA2
 nextflow run main.nf --assemblies assemblies/ --outdir results2 --batch_sizes 10,50 \
@@ -58,12 +58,27 @@ runs in a public container image, so no extra setup is needed.
 | `--batch_sizes` | | Comma-separated batch sizes, e.g. `10,50` (overrides start/step/stop) |
 | `--start`, `--step`, `--stop` | 1, 10, all | Batch-size schedule when `--batch_sizes` is not set |
 | `--shuffle`, `--seed` | true, 1 | Sample order |
-| `--floc_args` | | Extra floc options for every call |
+| `--floc_distance` | (floc: 0.03) | `--distance`: Distance threshold used to create clusters |
+| `--floc_ksize` | (floc: 31) | `--ksize`: k-mer size |
+| `--floc_scaled` | (floc: 100) | `--scaled`: Scaling factor for signatures |
+| `--floc_batch` | (floc: 1000) | `--batch`: Sequences floc clusters per internal batch (not the pipeline's --batch_sizes) |
+| `--floc_min_hash_freq` | (floc: 0.05) | `--min-hash-freq`: Minimum frequency for a hash to be included in the global hashes |
+| `--floc_min_hash_frac` | (floc: 0.5) | `--min-hash-frac`: Minimum fraction of sample hashes shared with the global hashes after filtering |
+| `--floc_assign_metric` | (floc: avg) | `--assign-metric`: Containment used to assign new samples to existing clusters: query, min, max or avg |
+| `--floc_ignore_qc` | false | `--ignore-qc`: Remove samples that fail QC instead of failing |
+| `--floc_skip_qc` | false | `--skip-qc`: Skip QC |
+| `--floc_overwrite` | false | `--overwrite`: Overwrite existing signature files |
+| `--floc_plot` | false | `--plot`: Create PCoA and NJ tree plots (slow with many samples; plots are not kept) |
+| `--floc_pairwise` | false | `--pairwise`: Compute a pairwise distance matrix for each cluster with a new sample (not kept) |
 | `--core` | `pairwise` | SKA2 sites: `pairwise` (split k-mers shared by each pair) or `global` (present in every sample) |
 | `--ska_k` | 31 | SKA2 split k-mer size |
 | `--snp_threshold` | 100 | Pairs with fewer SNPs than this are flagged when floc places them in different clusters |
 | `--floc_container` | `public.ecr.aws/o8h2f0o1/floc:1.2.1` | |
 | `--ska_container` | `staphb/ska2:0.5.1` | |
+
+floc options map one-to-one onto floc 1.2.1's flags and are passed to every floc call.
+Value options left unset are not passed, so floc's own default (in brackets) applies;
+switches are off unless set. `-o` and the inputs are set by the pipeline.
 
 ### Distance matrix format
 

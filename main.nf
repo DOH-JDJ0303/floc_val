@@ -49,6 +49,31 @@ def batchSizes(n) {
     return sizes.unique().sort()
 }
 
+// floc command-line options from the floc_* params. Value options left unset
+// (null) are not passed, so floc uses its own default.
+def flocArgs() {
+    def opts = [
+        floc_distance      : '--distance',
+        floc_ksize         : '--ksize',
+        floc_scaled        : '--scaled',
+        floc_batch         : '--batch',
+        floc_min_hash_freq : '--min-hash-freq',
+        floc_min_hash_frac : '--min-hash-frac',
+        floc_assign_metric : '--assign-metric'
+    ]
+    def flags = [
+        floc_ignore_qc     : '--ignore-qc',
+        floc_skip_qc       : '--skip-qc',
+        floc_overwrite     : '--overwrite',
+        floc_plot          : '--plot',
+        floc_pairwise      : '--pairwise'
+    ]
+    def args = []
+    opts.each  { p, flag -> if (params[p] != null && params[p] != '') args << "${flag} ${params[p]}" }
+    flags.each { p, flag -> if (params[p].toString().toLowerCase() == 'true') args << flag }
+    return args.join(' ')
+}
+
 // ---------------------------------------------------------------------------
 // Processes
 // ---------------------------------------------------------------------------
@@ -95,7 +120,7 @@ process FLOC_BATCHES {
             inputs=( "\$dir/new" "\$prev/out/sigs" )
         fi
         echo "### batch \$i: \$(ls "\$dir/new" | wc -l) new assemblies" >> "\$log"
-        floc ${params.floc_args} -o "\$dir/out" "\${inputs[@]}" >> "\$log" 2>&1
+        floc ${flocArgs()} -o "\$dir/out" "\${inputs[@]}" >> "\$log" 2>&1
         # floc exits 0 when a sample fails QC, so check its output as well
         if [[ ! -s "\$dir/out/clusters.csv" ]]; then
             echo "ERROR: floc wrote no clusters.csv for batch \$i (see \$log)" >&2
@@ -183,6 +208,10 @@ process SUMMARISE {
 workflow {
     if (!params.assemblies) error "Please provide --assemblies <directory of assemblies>"
     if (!(params.core in ['global', 'pairwise'])) error "--core must be global or pairwise"
+    if (params.floc_assign_metric && !(params.floc_assign_metric in ['query', 'min', 'max', 'avg']))
+        error "--floc_assign_metric must be query, min, max or avg"
+    if (params.containsKey('floc_args')) error "--floc_args has been replaced by individual --floc_* options (see README)"
+    log.info "floc-consistency: floc options: ${flocArgs() ?: '(floc defaults)'}"
 
     def dir = params.assemblies.toString().replaceAll('/+$', '')
     ch_asm = Channel.fromPath("${dir}/*.{fa,fasta,fna,fa.gz,fasta.gz,fna.gz}", checkIfExists: true)
