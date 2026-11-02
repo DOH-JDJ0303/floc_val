@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
 floc_consistency.py - helper for the floc-consistency Nextflow pipeline.
-Standard library only, so it runs in the floc container.
+summarise uses the standard library only; tree uses numpy and plotly. Both
+run in the floc container, which provides them.
 
   summarise  combine the final floc clusters of every batch-size run with an
              all-vs-all SNP distance matrix and write intra-/inter-cluster
              distance statistics, discrepant pairs and close pairs that floc
              placed in different clusters
+  tree       neighbour-joining tree of the SNP distances (midpoint rooted, Newick)
+             and an interactive plotly HTML figure: the tree with one column of
+             tiles per batch size showing each sample's cluster
 
 A run's clusters are given as files named bs<BATCH_SIZE>.clusters.csv (floc's
 clusters.csv: columns sid, cluster). The reference is the run whose batch
@@ -481,6 +485,315 @@ def cmd_summarise(a):
         print("\t".join(fmt(r[c]) for c in ["section", "group"] + STATS))
 
 
+# --------------------------------------------------------------------------- #
+# tree: neighbour-joining tree + cluster tiles (needs numpy and plotly, which
+# the floc container provides)
+# --------------------------------------------------------------------------- #
+PALETTE = [  # qualitative, high contrast; cycled when there are more clusters
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2",
+    "#000000", "#bcbd22", "#17becf", "#393b79", "#e6550d", "#31a354", "#843c39",
+    "#7b4173", "#3182bd", "#fd8d3c", "#74c476", "#e7969c", "#a55194", "#6baed6",
+    "#fdae6b", "#a1d99b", "#ad494a", "#de9ed6", "#637939", "#8ca252", "#bd9e39",
+    "#e7ba52", "#d6616b", "#ce6dbd", "#9c9ede", "#5254a3", "#b5cf6b", "#cedb9c",
+    "#e7cb94", "#c7e9c0", "#9ecae1", "#fdd0a2", "#9e0142",
+]
+SINGLETON = "#d9d9d9"
+
+
+def neighbour_joining(D, np):
+    """Neighbour joining on a full symmetric matrix. Returns (edges, n_nodes):
+    edges are (u, v, length) with leaves 0..n-1; negative lengths are set to 0."""
+    n = D.shape[0]
+    if n == 1:
+        return [], 1
+    if n == 2:
+        return [(0, 1, max(float(D[0, 1]), 0.0))], 2
+    D = D.astype(float).copy()
+    ids = list(range(n))
+    edges, nxt = [], n
+    while len(ids) > 2:
+        m = len(ids)
+        r = D.sum(axis=1)
+        Q = (m - 2) * D - r[:, None] - r[None, :]
+        np.fill_diagonal(Q, np.inf)
+        i, j = divmod(int(np.argmin(Q)), m)
+        if i > j:
+            i, j = j, i
+        li = 0.5 * D[i, j] + (r[i] - r[j]) / (2 * (m - 2))
+        lj = D[i, j] - li
+        u = nxt
+        nxt += 1
+        edges += [(u, ids[i], max(float(li), 0.0)), (u, ids[j], max(float(lj), 0.0))]
+        du = 0.5 * (D[i] + D[j] - D[i, j])
+        D[i, :] = du
+        D[:, i] = du
+        D[i, i] = 0.0
+        D = np.delete(np.delete(D, j, axis=0), j, axis=1)
+        ids[i] = u
+        del ids[j]
+    edges.append((ids[0], ids[1], max(float(D[0, 1]), 0.0)))
+    return edges, nxt
+
+
+def midpoint_root(edges, n_nodes, n_leaves):
+    """Root the unrooted tree at the midpoint of its longest leaf-to-leaf path.
+    Returns (root, children: dict node -> [(child, length)])."""
+    adj = defaultdict(list)
+    for u, v, w in edges:
+        adj[u].append((v, w))
+        adj[v].append((u, w))
+    if n_leaves == 1:
+        return 0, {0: []}
+
+    def farthest(src):
+        dist, prev, stack = {src: 0.0}, {src: None}, [src]
+        while stack:
+            x = stack.pop()
+            for y, w in adj[x]:
+                if y not in dist:
+                    dist[y], prev[y] = dist[x] + w, x
+                    stack.append(y)
+        leaf = max((x for x in dist if x < n_leaves), key=lambda x: (dist[x], -x))
+        return leaf, dist, prev
+
+    a, _, _ = farthest(0)
+    b, dist, prev = farthest(a)
+    half = dist[b] / 2
+    # walk from b towards a until the midpoint edge is found
+    x = b
+    while prev[x] is not None and dist[prev[x]] > half:
+        x = prev[x]
+    p = prev[x]
+    root = n_nodes                                  # new root node on edge p-x
+    if p is None:
+        root_children = [(y, w) for y, w in adj[x]]
+        root = x
+    else:
+        w = next(w for y, w in adj[x] if y == p)
+        to_x = dist[x] - half                       # root -> x
+        adj[x] = [(y, ww) for y, ww in adj[x] if y != p] + [(root, to_x)]
+        adj[p] = [(y, ww) for y, ww in adj[p] if y != x] + [(root, w - to_x)]
+        adj[root] = [(x, to_x), (p, w - to_x)]
+    children, seen, stack = defaultdict(list), {root}, [root]
+    while stack:
+        u = stack.pop()
+        for v, w in adj[u]:
+            if v not in seen:
+                seen.add(v)
+                children[u].append((v, w))
+                stack.append(v)
+    return root, children
+
+
+def layout(root, children, n_leaves):
+    """x = distance from root, y = leaf order (ladderized); internal y = mean of
+    first and last child. Iterative, so deep trees do not hit recursion limits."""
+    size = {}
+    for u in reversed(_preorder(root, children)):
+        size[u] = 1 if u < n_leaves and not children.get(u) else sum(size[v] for v, _ in children[u])
+    for u in children:
+        children[u].sort(key=lambda c: (size[c[0]], c[0]))   # smaller clades first
+    x, y, order = {root: 0.0}, {}, []
+    for u in _preorder(root, children):
+        for v, w in children.get(u, []):
+            x[v] = x[u] + w
+    for u in _preorder(root, children):
+        if not children.get(u):
+            y[u] = len(order)
+            order.append(u)
+    for u in reversed(_preorder(root, children)):
+        if children.get(u):
+            ys = [y[v] for v, _ in children[u]]
+            y[u] = (min(ys) + max(ys)) / 2
+    return x, y, order
+
+
+def _preorder(root, children):
+    out, stack = [], [root]
+    while stack:
+        u = stack.pop()
+        out.append(u)
+        stack.extend(v for v, _ in reversed(children.get(u, [])))
+    return out
+
+
+def newick(root, children, names, n_leaves) -> str:
+    def label(i):
+        s = names[i]
+        return s if re.fullmatch(r"[A-Za-z0-9_.\-]+", s) else "'" + s.replace("'", "''") + "'"
+    # iterative post-order build
+    text = {}
+    for u in reversed(_preorder(root, children)):
+        if not children.get(u):
+            text[u] = label(u) if u < n_leaves else ""
+        else:
+            text[u] = "(" + ",".join(f"{text[v]}:{w:.6g}" for v, w in children[u]) + ")"
+    return text[root] + ";\n"
+
+
+def cluster_colours(runs, ref_bs, order_names):
+    """colour per (batch size, sample). Reference clusters get palette colours in
+    tree order; another run's cluster takes the colour of the reference cluster it
+    overlaps most (one run cluster per reference cluster, largest overlap first);
+    the rest get new colours. Singletons are grey."""
+    ref = runs[ref_bs]
+    pal = iter(PALETTE * (1 + 4 * len(order_names) // len(PALETTE)))
+    ref_mem = members(ref)
+    ref_col = {}
+    for s in order_names:                           # colours follow the tree top-down
+        c = ref.get(s)
+        if c is not None and c not in ref_col:
+            ref_col[c] = SINGLETON if len(ref_mem[c]) == 1 else next(pal)
+    out = {}
+    for bs, part in runs.items():
+        mem = members(part)
+        if bs == ref_bs:
+            col = dict(ref_col)
+        else:
+            overlap = Counter((c, ref[s]) for s, c in part.items() if s in ref)
+            col, used = {}, set()
+            for (c, rc), k in sorted(overlap.items(), key=lambda kv: (-kv[1], kv[0])):
+                if c not in col and rc not in used and len(mem[c]) > 1 and ref_col[rc] != SINGLETON:
+                    col[c] = ref_col[rc]
+                    used.add(rc)
+            for s in order_names:
+                c = part.get(s)
+                if c is not None and c not in col:
+                    col[c] = SINGLETON if len(mem[c]) == 1 else next(pal)
+        for s, c in part.items():
+            out[bs, s] = col[c]
+    return out
+
+
+def cmd_tree(a):
+    import numpy as np
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    runs = read_runs(a.clusters)
+    ref_bs = reference_size(runs, a.n_samples)
+    clustered = set().union(*runs.values())
+    dist = read_distances(a.distances, keep=clustered)
+    names, n = dist.names, dist.n
+    if n == 0:
+        sys.exit("ERROR: no clustered sample is in the distance matrix")
+    thr = a.snp_threshold
+
+    D = np.zeros((n, n))
+    iu = np.triu_indices(n, 1)
+    D[iu] = np.frombuffer(dist.d, dtype=float) if n > 1 else []
+    D = D + D.T
+    missing = int(np.isnan(D[iu]).sum()) if n > 1 else 0
+    if missing:
+        fill = float(np.nanmax(D)) if np.isfinite(np.nanmax(D)) else 0.0
+        print(f"WARNING: {missing} pairs have no distance; set to the largest distance ({fill:g}) "
+              "for the tree", file=sys.stderr)
+        D = np.where(np.isnan(D), fill, D)
+        np.fill_diagonal(D, 0.0)
+
+    edges, n_nodes = neighbour_joining(D, np)
+    root, children = midpoint_root(edges, n_nodes, n)
+    x, y, order = layout(root, children, n)
+    order_names = [names[i] for i in order]
+    with open(a.newick, "w") as fh:
+        fh.write(newick(root, children, names, n))
+
+    # ---- tree traces: elbow segments, with None breaks between segments
+    hx, hy, vx, vy = [], [], [], []
+    for u, kids in children.items():
+        if not kids:
+            continue
+        ys = [y[v] for v, _ in kids]
+        vx += [x[u], x[u], None]
+        vy += [min(ys), max(ys), None]
+        for v, _ in kids:
+            hx += [x[u], x[v], None]
+            hy += [y[v], y[v], None]
+    xmax = max(x.values()) or 1.0
+    gx, gy = [], []                                 # faint guides from tips to the tiles
+    for i in order:
+        gx += [x[i], xmax, None]
+        gy += [y[i], y[i], None]
+
+    # ---- tiles: one column per batch size, reference first
+    cols = [ref_bs] + [bs for bs in runs if bs != ref_bs]
+    col_labels = [f"{bs} (ref)" if bs == ref_bs else str(bs) for bs in cols]
+    colour = cluster_colours(runs, ref_bs, order_names)
+    palette = sorted(set(colour.values()))
+    cidx = {c: k for k, c in enumerate(palette)}
+    K = max(len(palette), 1)
+    scale = []
+    for k, c in enumerate(palette):
+        scale += [[k / K, c], [(k + 1) / K, c]]
+    if not scale:
+        scale = [[0, SINGLETON], [1, SINGLETON]]
+
+    # close pairs (< threshold) split across clusters, per sample and run
+    close = (D < thr) & ~np.eye(n, dtype=bool)
+    z, hover = [], []
+    for row, s in enumerate(order_names):
+        zr, hr = [], []
+        for bs, lab in zip(cols, col_labels):
+            part = runs[bs]
+            c = part.get(s)
+            if c is None:
+                zr.append(None)
+                hr.append(f"<b>{s}</b><br>batch size {lab}<br>not clustered (failed QC)")
+                continue
+            mem = [t for t in part if part[t] == c]
+            i = dist.idx[s]
+            split = [names[j] for j in np.nonzero(close[i])[0]
+                     if names[j] in part and part[names[j]] != c]
+            zr.append(cidx[colour[bs, s]] + 0.5)
+            hr.append(f"<b>{s}</b><br>batch size {lab}<br>cluster {c} ({len(mem)} samples)"
+                      + (f"<br>{len(split)} sample(s) within {thr:g} SNPs in other clusters: "
+                         + ", ".join(sorted(split)[:10]) + (" ..." if len(split) > 10 else "")
+                         if split else ""))
+        z.append(zr)
+        hover.append(hr)
+
+    tree_w, tile_w = 700, max(60 * len(cols), 120)
+    fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.005,
+                        column_widths=[tree_w, tile_w])
+    fig.add_trace(go.Scatter(x=gx, y=gy, mode="lines", hoverinfo="skip", showlegend=False,
+                             line=dict(color="rgba(150,150,150,0.35)", width=1, dash="dot")), 1, 1)
+    fig.add_trace(go.Scatter(x=hx + vx, y=hy + vy, mode="lines", hoverinfo="skip",
+                             showlegend=False, line=dict(color="#333", width=1.2)), 1, 1)
+    fig.add_trace(go.Scatter(
+        x=[x[i] for i in order], y=[y[i] for i in order], mode="markers", showlegend=False,
+        marker=dict(size=5, color=[colour.get((ref_bs, s), "#fff") for s in order_names],
+                    line=dict(width=0.5, color="#333")),
+        text=[f"<b>{s}</b><br>root distance {x[i]:.4g} SNPs<br>reference cluster "
+              f"{runs[ref_bs].get(s, 'not clustered')}" for s, i in zip(order_names, order)],
+        hovertemplate="%{text}<extra></extra>"), 1, 1)
+    fig.add_trace(go.Heatmap(z=z, x=col_labels, y=list(range(n)), text=hover,
+                             hovertemplate="%{text}<extra></extra>", colorscale=scale,
+                             zmin=0, zmax=K, showscale=False, xgap=2, ygap=1), 1, 2)
+
+    height = max(450, 16 * n + 200)
+    fig.update_layout(
+        height=height, width=tree_w + tile_w + 300, plot_bgcolor="white",
+        margin=dict(l=40, r=200, t=150, b=60),
+        title=dict(text=(f"Neighbour-joining tree of pairwise SNP distances ({n} samples) "
+                         f"and floc clusters by batch size"
+                         f"<br><sup>Tiles: colour = cluster, matched to the reference cluster it "
+                         f"overlaps most; new colours = clusters with no reference match.<br>"
+                         f"Light grey = singleton; blank = not clustered. Hover a tile for samples "
+                         f"within {thr:g} SNPs placed in other clusters.</sup>"), x=0.01, y=0.98,
+                    yanchor="top"))
+    fig.update_xaxes(title_text="SNPs from midpoint root", showgrid=True, gridcolor="#eee",
+                     zeroline=False, row=1, col=1)
+    fig.update_xaxes(title_text="batch size", side="top", tickangle=0, row=1, col=2)
+    fig.update_yaxes(range=[n - 0.5, -0.5], showgrid=False, zeroline=False,
+                     showticklabels=False, row=1, col=1)
+    fig.update_yaxes(tickmode="array", tickvals=list(range(n)), ticktext=order_names,
+                     side="right", showticklabels=True, tickfont=dict(size=10 if n <= 150 else 7),
+                     row=1, col=2)
+    fig.write_html(a.html, include_plotlyjs=True, full_html=True,
+                   config={"displaylogo": False, "toImageButtonOptions": {"format": "svg"}})
+    print(f"tree: {n} samples, {len(cols)} batch sizes -> {a.html}, {a.newick}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -492,8 +805,15 @@ def main(argv=None):
     s.add_argument("--snp-threshold", type=float, default=100)
     s.add_argument("--distance-source", default="SKA2",
                    help="description of where the distances came from (for the report)")
+    t = sub.add_parser("tree")
+    t.add_argument("--clusters", nargs="+", required=True)
+    t.add_argument("--distances", required=True, help="all-vs-all distance matrix (long or square)")
+    t.add_argument("--n-samples", type=int, required=True)
+    t.add_argument("--snp-threshold", type=float, default=100)
+    t.add_argument("--html", default="nj_tree_clusters.html")
+    t.add_argument("--newick", default="nj_tree.nwk")
     a = ap.parse_args(argv)
-    {"summarise": cmd_summarise}[a.cmd](a)
+    {"summarise": cmd_summarise, "tree": cmd_tree}[a.cmd](a)
 
 
 if __name__ == "__main__":

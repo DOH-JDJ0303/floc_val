@@ -23,6 +23,9 @@ against pairwise SNP distances between every pair of samples.
    (intra-cluster) and between clusters (inter-cluster), and every pair of samples
    with fewer than `--snp_threshold` (default 100) SNPs that floc placed in
    different clusters.
+5. `PLOT_TREE` builds a neighbour-joining tree of the SNP distances (midpoint rooted)
+   and draws it with plotly, with one column of tiles per batch size to the right of
+   the tree showing each sample's cluster.
 
 ## Run
 
@@ -105,6 +108,8 @@ Pairs missing from the matrix are left out of the statistics and counted in
 | `cluster_stats.tsv` | Per batch size and cluster: size, intra-cluster SNP statistics, nearest sample in another cluster (SNPs, cluster, pair), members |
 | `discrepant_pairs.tsv` | One row per pair grouped differently from the reference, with the batch sizes that differ and the pair's SNP distance |
 | `within_cluster_pairs.tsv` | One row per pair in the same final cluster, per batch size |
+| `tree/nj_tree_clusters.html` | Interactive figure: neighbour-joining tree of the SNP distances, with one column of tiles per batch size (reference first). Each cluster takes the colour of the reference cluster it overlaps most, so splits show as new colours and merges as one colour spanning several clades; light grey = singleton, blank = not clustered. Hovering a tile shows the cluster and any samples within `--snp_threshold` SNPs that were placed in other clusters. Self-contained (works offline). |
+| `tree/nj_tree.nwk` | The neighbour-joining tree in Newick format (branch lengths in SNPs) |
 | `distances/ska_distances.tsv` | SKA2 all-vs-all distances (not written when `--distance_matrix` is given); reusable as `--distance_matrix` |
 | `floc/bs<N>.clusters.csv`, `floc/bs<N>.floc.log` | Final floc clusters and floc log for each batch size |
 | `sample_order.txt` | The selected samples, in the order used |

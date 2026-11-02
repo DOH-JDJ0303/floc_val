@@ -17,6 +17,8 @@
  *   - the run with all samples in one batch is the reference
  *   - SUMMARISE reports intra- and inter-cluster SNP distances and pairs
  *     with < --snp_threshold SNPs that floc placed in different clusters
+ *   - PLOT_TREE draws a neighbour-joining tree of the SNP distances with a
+ *     column of cluster tiles per batch size (interactive plotly HTML)
  *
  * Usage:
  *   nextflow run main.nf --assemblies <dir> --outdir <dir> [--batch_sizes 10,50]
@@ -202,6 +204,28 @@ process SUMMARISE {
     """
 }
 
+process PLOT_TREE {
+    label 'floc'
+    label 'small'
+    publishDir "${params.outdir}/tree", mode: 'copy'
+
+    input:
+    path clusters
+    path distances
+    val n_samples
+
+    output:
+    path 'nj_tree.nwk'
+    path 'nj_tree_clusters.html'
+
+    script:
+    """
+    floc_consistency.py tree --clusters ${clusters} --distances ${distances} \\
+        --n-samples ${n_samples} --snp-threshold ${params.snp_threshold} \\
+        --newick nj_tree.nwk --html nj_tree_clusters.html
+    """
+}
+
 // ---------------------------------------------------------------------------
 // Workflow
 // ---------------------------------------------------------------------------
@@ -264,4 +288,7 @@ workflow {
 
     // 3. intra-/inter-cluster distances and close pairs split across clusters
     SUMMARISE(ch_clusters, ch_dist, ch_n)
+
+    // 4. neighbour-joining tree of the SNP distances with each batch size's clusters
+    PLOT_TREE(ch_clusters, ch_dist, ch_n)
 }
