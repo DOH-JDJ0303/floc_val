@@ -3,17 +3,25 @@
  * floc-consistency
  *
  * Tests how consistent floc clustering is when the same assemblies are added
- * in batches of different sizes, and measures SKA2 core SNP distances within
- * the final clusters and between samples floc groups inconsistently.
+ * in batches of different sizes, and compares floc's clusters with pairwise
+ * SNP distances.
  *
+ *   - SNP distances between every pair of samples are computed first with
+ *     SKA2 (SKA_BUILD + SKA_DISTANCE), or read from --distance_matrix
+ *   - at most --max_samples assemblies (default 50) are picked at random
+ *     (seeded) and used for every step
  *   - one shuffled sample order (seeded) is used for every batch size
  *   - FLOC_BATCHES runs all of floc's iterations for one batch size in a
  *     single task: batch 0 is clustered, each later batch is added to the
  *     previous batch's signatures; only the final clusters.csv is kept
  *   - the run with all samples in one batch is the reference
+ *   - SUMMARISE reports intra- and inter-cluster SNP distances and pairs
+ *     with < --snp_threshold SNPs that floc placed in different clusters
  *
  * Usage:
  *   nextflow run main.nf --assemblies <dir> --outdir <dir> [--batch_sizes 10,50]
+ *                        [--distance_matrix <file>]
+ *                        [--max_samples 50]
  */
 nextflow.enable.dsl = 2
 
@@ -101,24 +109,6 @@ process FLOC_BATCHES {
     """
 }
 
-process PLAN_PAIRS {
-    label 'floc'
-    label 'small'
-
-    input:
-    path clusters
-    val n_samples
-
-    output:
-    path 'ska_groups.tsv'
-
-    script:
-    """
-    floc_consistency.py plan --clusters ${clusters} --n-samples ${n_samples} \\
-        --core ${params.core} --out ska_groups.tsv
-    """
-}
-
 process SKA_BUILD {
     tag "${sample}"
     label 'ska'
@@ -138,20 +128,23 @@ process SKA_BUILD {
 }
 
 process SKA_DISTANCE {
-    tag "${group} (${skfs.size()} genomes)"
+    tag "${skfs.size()} genomes"
     label 'ska'
+    publishDir "${params.outdir}/distances", mode: 'copy'
 
     input:
-    tuple val(group), path(skfs, stageAs: 'skf/*')
+    path skfs, stageAs: 'skf/*'
 
     output:
-    path "dist_${group}.tsv"
+    path 'ska_distances.tsv'
 
     script:
-    def min_freq = params.core == 'pairwise' ? 0 : 1
+    // global: split k-mers present in every sample; pairwise: those shared by each pair
+    def min_freq = params.core == 'global' ? 1 : 0
     """
-    ska merge -o merged skf/*.skf
-    ska distance --min-freq ${min_freq} --threads ${task.cpus} -o dist_${group}.tsv merged.skf
+    ska merge -o all skf/*.skf
+    ska distance --min-freq ${min_freq} --threads ${task.cpus} -o ska_distances.tsv all.skf
+    rm -f all.skf
     """
 }
 
@@ -162,20 +155,25 @@ process SUMMARISE {
 
     input:
     path clusters
-    path distances, stageAs: 'dist/*'
+    path distances
     val n_samples
 
     output:
     path 'summary.tsv'
+    path 'run_metrics.tsv'
+    path 'split_close_pairs.tsv'
     path 'discrepant_pairs.tsv'
     path 'within_cluster_pairs.tsv'
     path 'cluster_stats.tsv'
 
     script:
-    def dists = distances ? "--distances dist/*" : ""
+    def source = params.distance_matrix
+        ? "supplied matrix ${file(params.distance_matrix).name}"
+        : "SKA2 k=${params.ska_k}, core=${params.core}"
     """
-    floc_consistency.py summarise --clusters ${clusters} ${dists} --n-samples ${n_samples} \\
-        --snp-threshold ${params.snp_threshold} --core ${params.core} --ska-k ${params.ska_k}
+    floc_consistency.py summarise --clusters ${clusters} --distances ${distances} \\
+        --n-samples ${n_samples} --snp-threshold ${params.snp_threshold} \\
+        --distance-source '${source}'
     """
 }
 
@@ -184,17 +182,39 @@ process SUMMARISE {
 // ---------------------------------------------------------------------------
 workflow {
     if (!params.assemblies) error "Please provide --assemblies <directory of assemblies>"
-    if (!(params.core in ['group', 'global', 'pairwise'])) error "--core must be group, global or pairwise"
+    if (!(params.core in ['global', 'pairwise'])) error "--core must be global or pairwise"
 
     def dir = params.assemblies.toString().replaceAll('/+$', '')
     ch_asm = Channel.fromPath("${dir}/*.{fa,fasta,fna,fa.gz,fasta.gz,fna.gz}", checkIfExists: true)
 
-    ch_all = ch_asm.toSortedList { a, b -> a.name <=> b.name }
+    // random subset of at most --max_samples assemblies (seeded); 0 = all
+    ch_all = ch_asm
+        .toSortedList { a, b -> a.name <=> b.name }
+        .map { files ->
+            def names = files.collect { sampleName(it) }
+            def dups = names.countBy { it }.findAll { it.value > 1 }.keySet()
+            if (dups) error "Duplicate sample names (file name without extensions): ${dups.join(', ')}"
+            def max = (params.max_samples ?: 0) as int
+            if (max <= 0 || files.size() <= max) return files
+            def picked = new ArrayList(files)
+            Collections.shuffle(picked, new Random(params.seed as long))
+            log.info "floc-consistency: randomly selected ${max} of ${files.size()} assemblies (--max_samples ${max}, --seed ${params.seed})"
+            picked.take(max).sort { it.name }
+        }
 
+    // 1. pairwise SNP distances between every pair of samples
+    if (params.distance_matrix) {
+        log.info "floc-consistency: using the supplied distance matrix ${params.distance_matrix}; SKA2 is skipped"
+        ch_dist = Channel.fromPath(params.distance_matrix, checkIfExists: true).first()
+    } else {
+        SKA_BUILD(ch_all.flatMap { it }.map { f -> [sampleName(f), f] })
+        SKA_DISTANCE(SKA_BUILD.out.map { s, skf -> skf }.collect())
+        ch_dist = SKA_DISTANCE.out
+    }
+
+    // 2. floc clustering at each batch size
     ch_design = ch_all.map { files ->
         def names = files.collect { sampleName(it) }
-        def dups = names.countBy { it }.findAll { it.value > 1 }.keySet()
-        if (dups) error "Duplicate sample names (file name without extensions): ${dups.join(', ')}"
         def order = new ArrayList(names)
         if (params.shuffle) Collections.shuffle(order, new Random(params.seed as long))
         def n = files.size()
@@ -213,23 +233,6 @@ workflow {
     FLOC_BATCHES(ch_sizes, ch_order, ch_all)
     ch_clusters = FLOC_BATCHES.out.clusters.collect()
 
-    // pairs to measure, grouped for SKA
-    PLAN_PAIRS(ch_clusters, ch_n)
-    ch_members = PLAN_PAIRS.out
-        .splitCsv(header: true, sep: '\t')
-        .map { row -> [row.sample, row.group] }
-
-    // split k-mer file for each sample that is measured
-    ch_asm_by_name = ch_asm.map { f -> [sampleName(f), f] }
-    ch_to_build = ch_members.map { s, g -> s }.unique().join(ch_asm_by_name)
-    SKA_BUILD(ch_to_build)
-
-    // core SNP distances per group
-    ch_groups = ch_members
-        .combine(SKA_BUILD.out, by: 0)            // [sample, group, skf]
-        .map { s, g, skf -> [g, skf] }
-        .groupTuple()
-    SKA_DISTANCE(ch_groups)
-
-    SUMMARISE(ch_clusters, SKA_DISTANCE.out.collect().ifEmpty([]), ch_n)
+    // 3. intra-/inter-cluster distances and close pairs split across clusters
+    SUMMARISE(ch_clusters, ch_dist, ch_n)
 }

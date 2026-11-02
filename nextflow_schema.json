@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema",
   "$id": "https://raw.githubusercontent.com/NW-PaGe/floc-consistency/main/nextflow_schema.json",
   "title": "floc-consistency pipeline parameters",
-  "description": "Consistency of floc clustering across batch sizes, with SKA2 core SNP distances",
+  "description": "Consistency of floc clustering across batch sizes, checked against pairwise SNP distances",
   "type": "object",
   "definitions": {
     "input_output": {
@@ -20,11 +20,16 @@
           "format": "directory-path",
           "default": "results",
           "description": "Output directory (use a bucket path, e.g. s3://..., on Seqera Platform)."
+        },
+        "distance_matrix": {
+          "type": "string",
+          "format": "file-path",
+          "description": "Optional all-vs-all SNP distance matrix; when given, SKA2 is skipped. Long form (sample_a, sample_b, distance, e.g. a previous run's distances/ska_distances.tsv) or a square matrix with a header row of sample names. Tab-, comma- or space-separated, optionally gzipped. Sample names must match the assembly file names without extensions."
         }
       }
     },
     "batches": {
-      "title": "Batch sizes and sample order",
+      "title": "Samples, batch sizes and order",
       "type": "object",
       "properties": {
         "batch_sizes": {
@@ -34,6 +39,7 @@
         "start": { "type": "integer", "default": 1, "minimum": 1, "description": "Smallest batch size (when batch_sizes is not set)." },
         "step": { "type": "integer", "default": 10, "minimum": 1, "description": "Increase between batch sizes (when batch_sizes is not set)." },
         "stop": { "type": "integer", "minimum": 1, "description": "Largest batch size before the reference run (default: number of samples)." },
+        "max_samples": { "type": "integer", "default": 50, "minimum": 0, "description": "Randomly select at most this many assemblies (seeded with seed) and use only them for every step. 0 uses every assembly." },
         "shuffle": { "type": "boolean", "default": true, "description": "Shuffle the sample order (one order is used for every batch size)." },
         "seed": { "type": "integer", "default": 1, "description": "Random seed for the shuffle." }
       }
@@ -51,17 +57,17 @@
       }
     },
     "ska_options": {
-      "title": "SKA2 core SNPs",
+      "title": "SNP distances",
       "type": "object",
       "properties": {
         "core": {
           "type": "string",
-          "default": "group",
-          "enum": ["group", "global", "pairwise"],
-          "description": "group: core of samples linked by measured pairs; global: core of all measured samples; pairwise: split k-mers shared by each pair."
+          "default": "pairwise",
+          "enum": ["pairwise", "global"],
+          "description": "pairwise: SNPs in split k-mers shared by each pair; global: only split k-mers present in every sample."
         },
         "ska_k": { "type": "integer", "default": 31, "description": "SKA2 split k-mer size (odd)." },
-        "snp_threshold": { "type": "number", "default": 100, "description": "Report discrepant pairs with fewer core SNPs than this." },
+        "snp_threshold": { "type": "number", "default": 100, "description": "Pairs with fewer SNPs than this are flagged when floc places them in different clusters." },
         "ska_container": { "type": "string", "default": "staphb/ska2:0.5.1", "description": "SKA2 container image." }
       }
     }
