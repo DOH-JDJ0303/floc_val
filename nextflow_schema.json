@@ -48,21 +48,21 @@
       "title": "floc",
       "type": "object",
       "properties": {
-        "floc_distance": { "type": "number", "description": "floc --distance: Distance threshold used to create clusters. Unset = floc default (0.03 in floc 1.2.3)." },
+        "floc_distance": { "type": "number", "default": 0.05, "description": "floc --distance: Distance threshold used to create clusters (floc's own default is 0.03)." },
         "floc_ksize": { "type": "integer", "description": "floc --ksize: k-mer size. Unset = floc default (31 in floc 1.2.3)." },
         "floc_scaled": { "type": "integer", "description": "floc --scaled: Scaling factor for signatures. Unset = floc default (100 in floc 1.2.3)." },
         "floc_batch": { "type": "integer", "description": "floc --batch: Sequences floc clusters per internal batch (not the pipeline's --batch_sizes). Unset = floc default (1000 in floc 1.2.3)." },
         "floc_min_hash_freq": { "type": "number", "description": "floc --min-hash-freq: QC: build the global hash from k-mers found in more than this fraction of all samples. Unset = floc default (0.05 in floc 1.2.3)." },
         "floc_min_hash_frac": { "type": "number", "description": "floc --min-hash-frac: QC: a sample fails if less than this fraction of its k-mers are in the global hash built with --min-hash-freq. Unset = floc default (0.5 in floc 1.2.3)." },
         "floc_assign_metric": { "type": "string", "enum": ["avg", "min", "max", "query"], "description": "floc --assign-metric: Containment metric used to assign new samples to existing clusters: avg, min, max or query. Unset = floc default (avg in floc 1.2.3)." },
-        "floc_assign_hash_freq": { "type": "number", "minimum": 0, "maximum": 1, "description": "floc --assign-hash-freq: Assign new samples using cluster hashes built from k-mers present in at least this fraction of the cluster's samples; 0 keeps every hash (floc 1.2.1/1.2.2 behaviour). Unset = floc default (0.5 in floc 1.2.3)." },
+        "floc_assign_hash_freq": { "type": "number", "default": 0.6, "minimum": 0, "maximum": 1, "description": "floc --assign-hash-freq: Assign new samples using cluster hashes built from k-mers present in at least this fraction of the cluster's samples; 0 keeps every hash (floc 1.2.1/1.2.2 behaviour). floc's own default is 0.5." },
         "floc_dbscan_metric": { "type": "string", "enum": ["avg", "min", "max"], "description": "floc --dbscan-metric: Containment metric used by DBSCAN; also used for --pairwise and --plot. Unset = floc default (avg in floc 1.2.3)." },
         "floc_ignore_qc": { "type": "boolean", "default": false, "description": "floc --ignore-qc: Remove samples that fail QC instead of failing." },
         "floc_skip_qc": { "type": "boolean", "default": false, "description": "floc --skip-qc: Skip QC." },
         "floc_overwrite": { "type": "boolean", "default": false, "description": "floc --overwrite: Overwrite existing signature files." },
         "floc_plot": { "type": "boolean", "default": false, "description": "floc --plot: Create PCoA and NJ tree plots (slow with many samples; plots are not kept)." },
         "floc_pairwise": { "type": "boolean", "default": false, "description": "floc --pairwise: Compute a pairwise distance matrix for each cluster with a new sample (not kept)." },
-        "floc_container": { "type": "string", "default": "public.ecr.aws/o8h2f0o1/floc:1.2.3", "description": "floc container image." }
+        "floc_container": { "type": "string", "default": "public.ecr.aws/o8h2f0o1/floc:1.2.4", "description": "floc container image." }
       }
     },
     "ska_options": {

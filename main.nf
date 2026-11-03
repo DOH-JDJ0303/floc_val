@@ -51,8 +51,8 @@ def batchSizes(n) {
     return sizes.unique().sort()
 }
 
-// floc command-line options from the floc_* params. Value options left unset
-// (null) are not passed, so floc uses its own default.
+// floc command-line options from the floc_* params. Value options that are unset
+// (null) or set to 'none' are not passed, so floc uses its own default.
 def flocArgs() {
     def opts = [
         floc_distance         : '--distance',
@@ -73,7 +73,13 @@ def flocArgs() {
         floc_pairwise         : '--pairwise'
     ]
     def args = []
-    opts.each  { p, flag -> if (params[p] != null && params[p] != '') args << "${flag} ${params[p]}" }
+    opts.each  { p, flag ->
+        def v = params[p]
+        if (v == null || v == '' || v.toString().toLowerCase() == 'none') return
+        // Nextflow sets a parameter given without a value (or with '') to true
+        if (v instanceof Boolean) error "--${p} needs a value (or 'none' to use floc's default)"
+        args << "${flag} ${v}"
+    }
     flags.each { p, flag -> if (params[p].toString().toLowerCase() == 'true') args << flag }
     return args.join(' ')
 }
