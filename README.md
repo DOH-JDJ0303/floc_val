@@ -65,9 +65,11 @@ runs in a public container image, so no extra setup is needed.
 | `--floc_ksize` | (floc: 31) | `--ksize`: k-mer size |
 | `--floc_scaled` | (floc: 100) | `--scaled`: Scaling factor for signatures |
 | `--floc_batch` | (floc: 1000) | `--batch`: Sequences floc clusters per internal batch (not the pipeline's --batch_sizes) |
-| `--floc_min_hash_freq` | (floc: 0.05) | `--min-hash-freq`: Minimum frequency for a hash to be included in the global hashes |
-| `--floc_min_hash_frac` | (floc: 0.5) | `--min-hash-frac`: Minimum fraction of sample hashes shared with the global hashes after filtering |
-| `--floc_assign_metric` | (floc: avg) | `--assign-metric`: Containment used to assign new samples to existing clusters: query, min, max or avg |
+| `--floc_min_hash_freq` | (floc: 0.05) | `--min-hash-freq`: QC: build the global hash from k-mers found in more than this fraction of all samples |
+| `--floc_min_hash_frac` | (floc: 0.5) | `--min-hash-frac`: QC: a sample fails if less than this fraction of its k-mers are in the global hash built with `--min-hash-freq` |
+| `--floc_assign_metric` | (floc: avg) | `--assign-metric`: Containment metric used to assign new samples to existing clusters: avg, min, max or query |
+| `--floc_assign_hash_freq` | (floc: 0.5) | `--assign-hash-freq`: Assign new samples using cluster hashes from k-mers in at least this fraction of the cluster's samples; `0` keeps every hash |
+| `--floc_dbscan_metric` | (floc: avg) | `--dbscan-metric`: Containment metric used by DBSCAN; also used for `--pairwise` and `--plot`: avg, min or max |
 | `--floc_ignore_qc` | false | `--ignore-qc`: Remove samples that fail QC instead of failing |
 | `--floc_skip_qc` | false | `--skip-qc`: Skip QC |
 | `--floc_overwrite` | false | `--overwrite`: Overwrite existing signature files |
@@ -76,12 +78,15 @@ runs in a public container image, so no extra setup is needed.
 | `--core` | `pairwise` | SKA2 sites: `pairwise` (split k-mers shared by each pair) or `global` (present in every sample) |
 | `--ska_k` | 31 | SKA2 split k-mer size |
 | `--snp_threshold` | 100 | Pairs with fewer SNPs than this are flagged when floc places them in different clusters |
-| `--floc_container` | `public.ecr.aws/o8h2f0o1/floc:1.2.1` | |
+| `--floc_container` | `public.ecr.aws/o8h2f0o1/floc:1.2.3` | |
 | `--ska_container` | `staphb/ska2:0.5.1` | |
 
-floc options map one-to-one onto floc 1.2.1's flags and are passed to every floc call.
+floc options map one-to-one onto floc 1.2.3's flags and are passed to every floc call.
 Value options left unset are not passed, so floc's own default (in brackets) applies;
 switches are off unless set. `-o` and the inputs are set by the pipeline.
+The `--floc_assign_hash_freq` and `--floc_dbscan_metric` options need floc 1.2.3 or later.
+To reproduce floc 1.2.1 assignments with the 1.2.3 container, add
+`--floc_assign_hash_freq 0`; for 1.2.2, also add `--floc_assign_metric query`.
 
 ### Distance matrix format
 

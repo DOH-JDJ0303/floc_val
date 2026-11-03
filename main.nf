@@ -55,20 +55,22 @@ def batchSizes(n) {
 // (null) are not passed, so floc uses its own default.
 def flocArgs() {
     def opts = [
-        floc_distance      : '--distance',
-        floc_ksize         : '--ksize',
-        floc_scaled        : '--scaled',
-        floc_batch         : '--batch',
-        floc_min_hash_freq : '--min-hash-freq',
-        floc_min_hash_frac : '--min-hash-frac',
-        floc_assign_metric : '--assign-metric'
+        floc_distance         : '--distance',
+        floc_ksize            : '--ksize',
+        floc_scaled           : '--scaled',
+        floc_batch            : '--batch',
+        floc_min_hash_freq    : '--min-hash-freq',
+        floc_min_hash_frac    : '--min-hash-frac',
+        floc_assign_metric    : '--assign-metric',
+        floc_assign_hash_freq : '--assign-hash-freq',
+        floc_dbscan_metric    : '--dbscan-metric'
     ]
     def flags = [
-        floc_ignore_qc     : '--ignore-qc',
-        floc_skip_qc       : '--skip-qc',
-        floc_overwrite     : '--overwrite',
-        floc_plot          : '--plot',
-        floc_pairwise      : '--pairwise'
+        floc_ignore_qc        : '--ignore-qc',
+        floc_skip_qc          : '--skip-qc',
+        floc_overwrite        : '--overwrite',
+        floc_plot             : '--plot',
+        floc_pairwise         : '--pairwise'
     ]
     def args = []
     opts.each  { p, flag -> if (params[p] != null && params[p] != '') args << "${flag} ${params[p]}" }
@@ -232,8 +234,10 @@ process PLOT_TREE {
 workflow {
     if (!params.assemblies) error "Please provide --assemblies <directory of assemblies>"
     if (!(params.core in ['global', 'pairwise'])) error "--core must be global or pairwise"
-    if (params.floc_assign_metric && !(params.floc_assign_metric in ['query', 'min', 'max', 'avg']))
-        error "--floc_assign_metric must be query, min, max or avg"
+    if (params.floc_assign_metric && !(params.floc_assign_metric in ['avg', 'min', 'max', 'query']))
+        error "--floc_assign_metric must be avg, min, max or query"
+    if (params.floc_dbscan_metric && !(params.floc_dbscan_metric in ['avg', 'min', 'max']))
+        error "--floc_dbscan_metric must be avg, min or max"
     if (params.containsKey('floc_args')) error "--floc_args has been replaced by individual --floc_* options (see README)"
     log.info "floc-consistency: floc options: ${flocArgs() ?: '(floc defaults)'}"
 
