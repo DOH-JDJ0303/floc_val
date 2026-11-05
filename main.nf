@@ -60,6 +60,7 @@ def flocArgs() {
         floc_scaled           : '--scaled',
         floc_batch            : '--batch',
         floc_min_hash_freq    : '--min-hash-freq',
+        floc_global_hash_freq : '--global-hash-freq',
         floc_min_hash_frac    : '--min-hash-frac',
         floc_assign_metric    : '--assign-metric',
         floc_assign_hash_freq : '--assign-hash-freq',

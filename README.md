@@ -61,14 +61,15 @@ runs in a public container image, so no extra setup is needed.
 | `--batch_sizes` | | Comma-separated batch sizes, e.g. `10,50` (overrides start/step/stop) |
 | `--start`, `--step`, `--stop` | 1, 10, all | Batch-size schedule when `--batch_sizes` is not set |
 | `--shuffle`, `--seed` | true, 1 | Sample order |
-| `--floc_distance` | 0.05 (floc: 0.03) | `--distance`: Distance threshold used to create clusters |
+| `--floc_distance` | (floc: 0.1) | `--distance`: Distance threshold used to create clusters |
 | `--floc_ksize` | (floc: 31) | `--ksize`: k-mer size |
 | `--floc_scaled` | (floc: 100) | `--scaled`: Scaling factor for signatures |
 | `--floc_batch` | (floc: 1000) | `--batch`: Sequences floc clusters per internal batch (not the pipeline's --batch_sizes) |
-| `--floc_min_hash_freq` | (floc: 0.05) | `--min-hash-freq`: QC: build the global hash from k-mers found in more than this fraction of all samples |
-| `--floc_min_hash_frac` | (floc: 0.5) | `--min-hash-frac`: QC: a sample fails if less than this fraction of its k-mers are in the global hash built with `--min-hash-freq` |
+| `--floc_min_hash_freq` | (floc: 0.05) | `--min-hash-freq`: QC: filter hashes not observed in more than this fraction of samples from the global hash |
+| `--floc_global_hash_freq` | (floc: 0.05) | `--global-hash-freq`: Filter hashes not observed in more than this fraction of samples before clustering; `0` keeps every hash |
+| `--floc_min_hash_frac` | (floc: 0.5) | `--min-hash-frac`: QC: fail samples with less than this fraction of hashes in the global hash filtered with `--min-hash-freq` |
 | `--floc_assign_metric` | (floc: avg) | `--assign-metric`: Containment metric used to assign new samples to existing clusters: avg, min, max or query |
-| `--floc_assign_hash_freq` | 0.6 (floc: 0.5) | `--assign-hash-freq`: Assign new samples using cluster hashes from k-mers in at least this fraction of the cluster's samples; `0` keeps every hash |
+| `--floc_assign_hash_freq` | (floc: 0.6) | `--assign-hash-freq`: Assign new samples using cluster hashes from k-mers in at least this fraction of the cluster's samples; `0` keeps every hash |
 | `--floc_dbscan_metric` | (floc: avg) | `--dbscan-metric`: Containment metric used by DBSCAN; also used for `--pairwise` and `--plot`: avg, min or max |
 | `--floc_ignore_qc` | false | `--ignore-qc`: Remove samples that fail QC instead of failing |
 | `--floc_skip_qc` | false | `--skip-qc`: Skip QC |
@@ -81,17 +82,14 @@ runs in a public container image, so no extra setup is needed.
 | `--floc_container` | `public.ecr.aws/o8h2f0o1/floc:1.2.4` | |
 | `--ska_container` | `staphb/ska2:0.5.1` | |
 
-floc options map one-to-one onto floc's flags (checked against floc 1.2.3) and are passed
-to every floc call.
-`--floc_distance` (0.05) and `--floc_assign_hash_freq` (0.6) have pipeline defaults and are
-always passed; set either to `none` to leave it out and use floc's default. Other value
-options left unset are not passed, so floc's own default (in brackets) applies;
-switches are off unless set. `-o` and the inputs are set by the pipeline.
-The `--floc_assign_hash_freq` and `--floc_dbscan_metric` options need floc 1.2.3 or later.
-To reproduce floc 1.2.1 results with the default container, add `--floc_distance 0.03
---floc_assign_hash_freq 0`; for 1.2.2, also add `--floc_assign_metric query`. With an
-older floc image (`--floc_container`), add `--floc_assign_hash_freq none`, since floc
-before 1.2.3 does not have that option.
+floc options map one-to-one onto floc's flags (checked against floc 1.2.4) and are passed
+to every floc call. Value options left unset are not passed, so floc's own default (in
+brackets) applies; switches are off unless set. `-o` and the inputs are set by the pipeline.
+The `--floc_assign_hash_freq` and `--floc_dbscan_metric` options need floc 1.2.3 or later,
+and `--floc_global_hash_freq` needs floc 1.2.4 or later.
+To reproduce floc 1.2.3 results with the default container, add `--floc_distance 0.03
+--floc_assign_hash_freq 0.5 --floc_global_hash_freq 0`; for 1.2.1, use
+`--floc_assign_hash_freq 0` instead of 0.5; for 1.2.2, also add `--floc_assign_metric query`.
 
 ### Distance matrix format
 
